@@ -57,7 +57,7 @@ app.post('/webhook', async (req, res) => {
 
       role: "user",
 
-      content: text
+      content: usertext
 
     }
           ]
