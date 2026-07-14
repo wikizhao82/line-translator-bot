@@ -1,32 +1,20 @@
-const express = require('express');
-const axios = require('axios');
+const express = require("express");
+const axios = require("axios");
 
 const app = express();
 app.use(express.json());
 
-const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
-const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
+const OPENAI_API_KEY =
+  process.env.OPENAI_API_KEY;
 
-app.post('/webhook', async (req, res) => {
-  try {
-    const events = req.body.events || [];
+const LINE_ACCESS_TOKEN =
+  process.env.LINE_ACCESS_TOKEN;
 
-    for (const event of events) {
+const OPENAI_MODEL =
+  process.env.OPENAI_MODEL ||
+  "gpt-5-mini";
 
-      if (event.type !== 'message') continue;
-      if (event.message.type !== 'text') continue;
-
-      const userText = event.message.text;
-
-      // OpenAI Responses API
-      const aiResponse = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
-        {
-          model: 'gpt-4.1-mini',
-          input: [
-            {
-              role: "system",
-              content: `
+const SYSTEM_PROMPT = `
 你是一位长期生活在泰国的华人翻译。
 
 任务：
@@ -41,58 +29,173 @@ app.post('/webhook', async (req, res) => {
 - 如果是和异性聊天，可以适当翻译得更自然、更有亲和力
 - 不要使用官方、公文、商务语气
 - 只输出翻译结果，不要解释
-`
-            },
-            {
-              role: "user",
-              content: userText
-            }
-          ]
+`.trim();
+
+async function translateText(userText) {
+  const response = await axios.post(
+    "https://api.openai.com/v1/chat/completions",
+    {
+      model: OPENAI_MODEL,
+      messages: [
+        {
+          role: "system",
+          content: SYSTEM_PROMPT
         },
         {
-          headers: {
-            Authorization: `Bearer ${OPENAI_API_KEY}`,
-            'Content-Type': 'application/json'
-          }
+          role: "user",
+          content: userText
         }
-      );
-
-      const translated =
-        aiResponse.data.output_text?.trim() || "翻译失败，请稍后再试。";
-
-      await axios.post(
-        'https://api.line.me/v2/bot/message/reply',
-        {
-          replyToken: event.replyToken,
-          messages: [
-            {
-              type: 'text',
-              text: translated
-            }
-          ]
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${LINE_ACCESS_TOKEN}`
-          }
-        }
-      );
+      ]
+    },
+    {
+      headers: {
+        Authorization:
+          `Bearer ${OPENAI_API_KEY}`,
+        "Content-Type":
+          "application/json"
+      },
+      timeout: 60000
     }
+  );
 
-    res.sendStatus(200);
+  const translated = String(
+    response.data?.choices?.[0]
+      ?.message?.content || ""
+  ).trim();
 
-  } catch (err) {
-    console.error(err.response?.data || err.message);
-    res.sendStatus(500);
+  if (!translated) {
+    throw new Error(
+      "OpenAI 返回了空翻译结果"
+    );
   }
+
+  return translated;
+}
+
+async function replyToLine(
+  replyToken,
+  translated
+) {
+  await axios.post(
+    "https://api.line.me/v2/bot/message/reply",
+    {
+      replyToken,
+      messages: [
+        {
+          type: "text",
+          text: translated
+        }
+      ]
+    },
+    {
+      headers: {
+        Authorization:
+          `Bearer ${LINE_ACCESS_TOKEN}`,
+        "Content-Type":
+          "application/json"
+      },
+      timeout: 15000
+    }
+  );
+}
+
+async function handleEvent(event) {
+  if (event.type !== "message") {
+    return;
+  }
+
+  if (event.message?.type !== "text") {
+    return;
+  }
+
+  if (!event.replyToken) {
+    return;
+  }
+
+  const userText = String(
+    event.message.text || ""
+  ).trim();
+
+  if (!userText) {
+    return;
+  }
+
+  console.log(
+    "收到翻译消息:",
+    userText
+  );
+
+  const translated =
+    await translateText(userText);
+
+  console.log(
+    "翻译结果:",
+    translated
+  );
+
+  await replyToLine(
+    event.replyToken,
+    translated
+  );
+}
+
+app.post("/webhook", (req, res) => {
+  const events =
+    Array.isArray(req.body?.events)
+      ? req.body.events
+      : [];
+
+  // 先立即回复 LINE，避免 Webhook 等待超时。
+  res.sendStatus(200);
+
+  Promise.allSettled(
+    events.map(handleEvent)
+  ).then(results => {
+    for (const result of results) {
+      if (
+        result.status === "rejected"
+      ) {
+        const error = result.reason;
+
+        console.error(
+          "处理消息失败:",
+          error.response?.status,
+          error.response?.data ||
+            error.stack ||
+            error.message
+        );
+      }
+    }
+  });
 });
 
-app.get('/', (req, res) => {
-  res.send('LINE Translator Bot Running');
+app.get("/", (req, res) => {
+  res.send(
+    `LINE Translator Bot Running\nModel: ${OPENAI_MODEL}`
+  );
 });
 
-const PORT = process.env.PORT || 3000;
+app.get("/health", (req, res) => {
+  res.json({
+    ok: true,
+    app: "LINE Translator Bot",
+    model: OPENAI_MODEL,
+    openaiConfigured:
+      Boolean(OPENAI_API_KEY),
+    lineConfigured:
+      Boolean(LINE_ACCESS_TOKEN)
+  });
+});
+
+const PORT =
+  process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(`Server running on ${PORT}`);
+  console.log(
+    `Server running on ${PORT}`
+  );
+
+  console.log(
+    `OpenAI model: ${OPENAI_MODEL}`
+  );
 });
