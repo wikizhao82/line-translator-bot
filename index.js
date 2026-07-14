@@ -12,7 +12,7 @@ const LINE_ACCESS_TOKEN =
 
 const OPENAI_MODEL =
   process.env.OPENAI_MODEL ||
-  "gpt-5-mini";
+  "gpt-5";
 
 const SYSTEM_PROMPT = `
 你是一位长期生活在泰国的华人翻译。
