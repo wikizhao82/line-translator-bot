@@ -9,7 +9,7 @@ const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 
 app.post('/webhook', async (req, res) => {
   try {
-    const events = req.body.events;
+    const events = req.body.events || [];
 
     for (const event of events) {
 
@@ -18,48 +18,35 @@ app.post('/webhook', async (req, res) => {
 
       const userText = event.message.text;
 
+      // OpenAI Responses API
       const aiResponse = await axios.post(
-        'https://api.openai.com/v1/chat/completions',
+        'https://api.openai.com/v1/responses',
         {
           model: 'gpt-5-mini',
-          messages: [
-           {
-
-      role: "system",
-
-      content: `你是一位长期生活在泰国的华人翻译。
+          input: [
+            {
+              role: "system",
+              content: `
+你是一位长期生活在泰国的华人翻译。
 
 任务：
-
 - 中文翻译成自然泰语
-
 - 泰语翻译成自然中文
 
 要求：
-
 - 不要逐字直译
-
 - 使用泰国年轻人日常聊天口语
-
 - 保持原意
-
 - 语气自然、友好、轻松
-
 - 如果是和异性聊天，可以适当翻译得更自然、更有亲和力
-
 - 不要使用官方、公文、商务语气
-
-- 只输出翻译结果，不要解释`
-
-    },
-
-    {
-
-      role: "user",
-
-      content: userText
-
-    }
+- 只输出翻译结果，不要解释
+`
+            },
+            {
+              role: "user",
+              content: userText
+            }
           ]
         },
         {
@@ -71,7 +58,7 @@ app.post('/webhook', async (req, res) => {
       );
 
       const translated =
-        aiResponse.data.choices[0].message.content;
+        aiResponse.data.output_text?.trim() || "翻译失败，请稍后再试。";
 
       await axios.post(
         'https://api.line.me/v2/bot/message/reply',
@@ -95,7 +82,7 @@ app.post('/webhook', async (req, res) => {
     res.sendStatus(200);
 
   } catch (err) {
-    console.error(err);
+    console.error(err.response?.data || err.message);
     res.sendStatus(500);
   }
 });
