@@ -20,7 +20,7 @@ app.post('/webhook', async (req, res) => {
 
       // OpenAI Responses API
       const aiResponse = await axios.post(
-        'https://api.openai.com/v1/responses',
+        'https://api.openai.com/v1/chat/completions',
         {
           model: 'gpt-5-mini',
           input: [
