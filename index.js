@@ -1,201 +1,293 @@
-const express = require("express");
-const axios = require("axios");
+const express = require('express');
+const axios = require('axios');
 
 const app = express();
 app.use(express.json());
 
-const OPENAI_API_KEY =
-  process.env.OPENAI_API_KEY;
+const OPENAI_API_KEY = process.env.OPENAI_API_KEY;
+const LINE_ACCESS_TOKEN = process.env.LINE_ACCESS_TOKEN;
 
-const LINE_ACCESS_TOKEN =
-  process.env.LINE_ACCESS_TOKEN;
+app.post('/webhook', async (req, res) => {
+  try {
+    const events = req.body.events || [];
 
-const OPENAI_MODEL =
-  process.env.OPENAI_MODEL ||
-  "gpt-5-mini";
+    for (const event of events) {
 
-const SYSTEM_PROMPT = `
-你是一位长期生活在泰国的华人翻译。
+      if (event.type !== 'message') continue;
+      if (event.message.type !== 'text') continue;
 
-任务：
-- 中文翻译成自然泰语
-- 泰语翻译成自然中文
+      const userText = event.message.text;
+
+      // GPT-5 翻译
+      const aiResponse = await axios.post(
+        'https://api.openai.com/v1/chat/completions',
+        {
+          model: 'gpt-5',
+
+          reasoning_effort: 'minimal',
+
+          max_completion_tokens: 300,
+
+          messages: [
+            {
+              role: 'system',
+              content: `
+你是一位长期生活在泰国的华人专业翻译。
+
+你的唯一任务是进行：
+
+- 中文 ⇄ 泰语互译
+
+收到内容后，请自动识别语言，并翻译成另一种语言。
+
+========================
+翻译原则（必须遵守）
+========================
+
+1. 必须忠实表达原文。
+
+不得改变原意。
+不得擅自增加、删减、推测任何内容。
+
+例如：
+
+不要把"登记结婚"翻译成"结婚"。
+
+不要把"喜欢"翻译成"爱"。
+
+不要把"可以"翻译成"应该"。
+
+不要把"可能"翻译成"一定"。
+
+========================
+
+2. 保持人物关系。
+
+不要因为翻译自然，而改变人物关系。
+
+例如：
+
+不要把：
+你
+
+翻译成：
+
+亲爱的
+宝宝
+老公
+老婆
+宝贝
+
+除非原文就是这样称呼。
+
+========================
+
+3. 保持语气一致。
+
+很温柔 → 保持温柔
+
+很生气 → 保持生气
+
+很冷静 → 保持冷静
+
+很委屈 → 保持委屈
+
+很幽默 → 保持幽默
+
+不要自行加强或减弱情绪。
+
+========================
+
+4. 保持所有细节。
+
+以下内容必须保持一致：
+
+- 人称
+- 时间
+- 数量
+- 否定词
+- 疑问句
+- 条件句
+- 语气词
+
+不能遗漏任何信息。
+
+========================
+
+5. 中文 → 泰语
+
+不要逐字翻译。
+
+请使用泰国年轻人真实聊天方式。
 
 要求：
-- 不要逐字直译
-- 使用泰国年轻人日常聊天口语
-- 保持原意
-- 语气自然、友好、轻松
-- 如果是和异性聊天，可以适当翻译得更自然、更有亲和力
-- 不要使用官方、公文、商务语气
-- 只输出翻译结果，不要解释
-`.trim();
 
-async function translateText(userText) {
-  const response = await axios.post(
-    "https://api.openai.com/v1/chat/completions",
-    {
-      model: OPENAI_MODEL,
-      messages: [
-        {
-          role: "system",
-          content: SYSTEM_PROMPT
+自然
+
+流畅
+
+像真人聊天
+
+但是绝不能改变原文意思。
+
+========================
+
+6. 泰语 → 中文
+
+翻译成自然中文。
+
+不要翻译成：
+
+教材
+
+新闻
+
+论文
+
+公文
+
+机器翻译
+
+要像中国人聊天。
+
+========================
+
+7. 短句处理
+
+如果输入只有：
+
+嗯
+
+哦
+
+哈哈
+
+真的吗？
+
+好的
+
+可以
+
+知道了
+
+谢谢
+
+……
+
+请按照当地真实聊天习惯翻译。
+
+========================
+
+8. 网络用语
+
+遇到：
+
+情侣聊天
+
+俚语
+
+玩笑
+
+撒娇
+
+请翻译真实意思。
+
+不要逐字翻译。
+
+========================
+
+9. 禁止行为
+
+禁止：
+
+解释
+
+分析
+
+回答问题
+
+补充剧情
+
+续写
+
+猜测背景
+
+输出拼音
+
+输出括号说明
+
+========================
+
+10. 输出格式
+
+只输出最终翻译。
+
+不要出现：
+
+翻译如下：
+
+中文：
+
+泰语：
+
+Explanation：
+
+整个回复只能包含最终翻译结果。
+`
+            },
+            {
+              role: 'user',
+              content: userText
+            }
+          ]
         },
         {
-          role: "user",
-          content: userText
+          timeout: 60000,
+          headers: {
+            Authorization: `Bearer ${OPENAI_API_KEY}`,
+            'Content-Type': 'application/json'
+          }
         }
-      ]
-    },
-    {
-      headers: {
-        Authorization:
-          `Bearer ${OPENAI_API_KEY}`,
-        "Content-Type":
-          "application/json"
-      },
-      timeout: 60000
-    }
-  );
+      );
 
-  const translated = String(
-    response.data?.choices?.[0]
-      ?.message?.content || ""
-  ).trim();
+      const translated =
+        aiResponse.data.choices[0].message.content.trim();
 
-  if (!translated) {
-    throw new Error(
-      "OpenAI 返回了空翻译结果"
-    );
-  }
-
-  return translated;
-}
-
-async function replyToLine(
-  replyToken,
-  translated
-) {
-  await axios.post(
-    "https://api.line.me/v2/bot/message/reply",
-    {
-      replyToken,
-      messages: [
+      await axios.post(
+        'https://api.line.me/v2/bot/message/reply',
         {
-          type: "text",
-          text: translated
+          replyToken: event.replyToken,
+          messages: [
+            {
+              type: 'text',
+              text: translated
+            }
+          ]
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${LINE_ACCESS_TOKEN}`
+          }
         }
-      ]
-    },
-    {
-      headers: {
-        Authorization:
-          `Bearer ${LINE_ACCESS_TOKEN}`,
-        "Content-Type":
-          "application/json"
-      },
-      timeout: 15000
+      );
     }
-  );
-}
 
-async function handleEvent(event) {
-  if (event.type !== "message") {
-    return;
+    res.sendStatus(200);
+
+  } catch (err) {
+    console.error('OpenAI Error:');
+    console.error(err.response?.data || err.message);
+
+    res.sendStatus(500);
   }
-
-  if (event.message?.type !== "text") {
-    return;
-  }
-
-  if (!event.replyToken) {
-    return;
-  }
-
-  const userText = String(
-    event.message.text || ""
-  ).trim();
-
-  if (!userText) {
-    return;
-  }
-
-  console.log(
-    "收到翻译消息:",
-    userText
-  );
-
-  const translated =
-    await translateText(userText);
-
-  console.log(
-    "翻译结果:",
-    translated
-  );
-
-  await replyToLine(
-    event.replyToken,
-    translated
-  );
-}
-
-app.post("/webhook", (req, res) => {
-  const events =
-    Array.isArray(req.body?.events)
-      ? req.body.events
-      : [];
-
-  // 先立即回复 LINE，避免 Webhook 等待超时。
-  res.sendStatus(200);
-
-  Promise.allSettled(
-    events.map(handleEvent)
-  ).then(results => {
-    for (const result of results) {
-      if (
-        result.status === "rejected"
-      ) {
-        const error = result.reason;
-
-        console.error(
-          "处理消息失败:",
-          error.response?.status,
-          error.response?.data ||
-            error.stack ||
-            error.message
-        );
-      }
-    }
-  });
 });
 
-app.get("/", (req, res) => {
-  res.send(
-    `LINE Translator Bot Running\nModel: ${OPENAI_MODEL}`
-  );
+app.get('/', (req, res) => {
+  res.send('LINE Translator Bot Running');
 });
 
-app.get("/health", (req, res) => {
-  res.json({
-    ok: true,
-    app: "LINE Translator Bot",
-    model: OPENAI_MODEL,
-    openaiConfigured:
-      Boolean(OPENAI_API_KEY),
-    lineConfigured:
-      Boolean(LINE_ACCESS_TOKEN)
-  });
-});
-
-const PORT =
-  process.env.PORT || 3000;
+const PORT = process.env.PORT || 3000;
 
 app.listen(PORT, () => {
-  console.log(
-    `Server running on ${PORT}`
-  );
-
-  console.log(
-    `OpenAI model: ${OPENAI_MODEL}`
-  );
+  console.log(`Server running on ${PORT}`);
 });
